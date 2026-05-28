@@ -41,8 +41,6 @@ Desktop.ini
 /docs/data_report.md
 /docs/experiment_log.md
 
-# Unrelated local project copied into this workspace
-/RollCallSystem/
 
 # Training outputs and generated artifacts
 /outputs/**
