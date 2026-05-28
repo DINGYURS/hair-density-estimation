@@ -1,0 +1,83 @@
+# Python cache and bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+.env
+.env.*
+
+# IDE and OS files
+.idea/
+.vscode/
+.vs/
+*.swp
+*.swo
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Local dataset copies should be synced separately, not committed
+/FDU_HairFollicleDataset/
+/data/
+/datasets/
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+
+# Project planning docs are tracked, generated/private docs are not
+/docs/*.docx
+/docs/data_report.md
+/docs/experiment_log.md
+
+# Unrelated local project copied into this workspace
+/RollCallSystem/
+
+# Training outputs and generated artifacts
+/outputs/**
+!/outputs/
+!/outputs/.gitkeep
+!/outputs/visualizations/
+!/outputs/visualizations/.gitkeep
+!/outputs/density_previews/
+!/outputs/density_previews/.gitkeep
+!/outputs/checkpoints/
+!/outputs/checkpoints/.gitkeep
+!/outputs/logs/
+!/outputs/logs/.gitkeep
+!/outputs/predictions/
+!/outputs/predictions/.gitkeep
+
+# Model weights and experiment artifacts
+*.pth
+*.pt
+*.ckpt
+*.onnx
+*.engine
+events.out.tfevents.*
+wandb/
+runs/
+mlruns/
+
+# Generated reports and intermediate arrays
+*.npy
+*.npz
+*.pkl
+*.pickle
+*.log
+
+# Packaging/build artifacts
+build/
+dist/
+*.egg-info/

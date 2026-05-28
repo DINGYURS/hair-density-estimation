@@ -1,0 +1,10 @@
+numpy
+opencv-python
+Pillow
+matplotlib
+tqdm
+PyYAML
+scikit-learn
+pandas
+tensorboard
+pytest
