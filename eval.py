@@ -50,6 +50,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input-size", type=int, default=None)
     parser.add_argument("--sigma", type=float, default=None)
     parser.add_argument("--downsample", type=int, default=8)
+    parser.add_argument("--transform-mode", choices=("crop", "resize"), default=None)
+    parser.add_argument("--include-class", action="append", default=None)
+    parser.add_argument("--exclude-class", action="append", default=None)
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--max-batches", type=int, default=None)
     return parser.parse_args()
@@ -84,6 +87,9 @@ def build_eval_dataset(
     input_size: int,
     sigma: float,
     downsample: int,
+    transform_mode: str,
+    include_classes: list[str] | None,
+    exclude_classes: list[str] | None,
 ) -> Any:
     from src.datasets import FduDensityDataset
 
@@ -97,6 +103,9 @@ def build_eval_dataset(
         downsample=downsample,
         training=False,
         augment=False,
+        transform_mode=transform_mode,
+        include_classes=include_classes,
+        exclude_classes=exclude_classes,
     )
 
 
@@ -211,11 +220,24 @@ def main() -> None:
     )
     input_size = args.input_size if args.input_size is not None else int(train_cfg["input_size"])
     sigma = args.sigma if args.sigma is not None else float(train_cfg["sigma"])
+    data_cfg = config.get("data", {})
+    transform_mode = (
+        args.transform_mode
+        if args.transform_mode is not None
+        else str(data_cfg.get("transform_mode", "crop"))
+    )
+    include_classes = (
+        args.include_class if args.include_class is not None else data_cfg.get("include_classes")
+    )
+    exclude_classes = (
+        args.exclude_class if args.exclude_class is not None else data_cfg.get("exclude_classes")
+    )
     output_dir = args.output_dir if args.output_dir is not None else Path(output_cfg.get("root", "outputs")) / "predictions"
     output_path = output_dir / f"{args.split}_predictions.csv"
 
     LOGGER.info(
-        "config=%s checkpoint=%s split=%s device=%s batch_size=%d num_workers=%d input_size=%d sigma=%g",
+        "config=%s checkpoint=%s split=%s device=%s batch_size=%d num_workers=%d "
+        "input_size=%d sigma=%g transform_mode=%s include_classes=%s exclude_classes=%s",
         args.config,
         args.checkpoint,
         args.split,
@@ -224,6 +246,9 @@ def main() -> None:
         num_workers,
         input_size,
         sigma,
+        transform_mode,
+        include_classes,
+        exclude_classes,
     )
 
     dataset = build_eval_dataset(
@@ -232,6 +257,9 @@ def main() -> None:
         input_size=input_size,
         sigma=sigma,
         downsample=args.downsample,
+        transform_mode=transform_mode,
+        include_classes=include_classes,
+        exclude_classes=exclude_classes,
     )
     loader = DataLoader(
         dataset,

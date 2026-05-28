@@ -1,0 +1,25 @@
+experiments:
+  - id: baseline_sigma4_count_pretrained_false
+    description: "Baseline: sigma=4, MSE + count loss, no ImageNet pretrained weights, 512 crop"
+    config: configs/ablations/baseline_sigma4_count_pretrained_false.yaml
+    output_dir: outputs/ablations/baseline_sigma4_count_pretrained_false
+  - id: e1_sigma8
+    description: "E1: sigma=8, compare against baseline sigma=4"
+    config: configs/ablations/e1_sigma8.yaml
+    output_dir: outputs/ablations/e1_sigma8
+  - id: e2_mse_only
+    description: "E2: lambda_count=0.0, compare MSE only against MSE + count loss"
+    config: configs/ablations/e2_mse_only.yaml
+    output_dir: outputs/ablations/e2_mse_only
+  - id: e3_pretrained_true
+    description: "E3: ImageNet pretrained VGG frontend enabled"
+    config: configs/ablations/e3_pretrained_true.yaml
+    output_dir: outputs/ablations/e3_pretrained_true
+  - id: e4_exclude_abnormal
+    description: "E4: filter abnormal class from density-map supervision"
+    config: configs/ablations/e4_exclude_abnormal.yaml
+    output_dir: outputs/ablations/e4_exclude_abnormal
+  - id: e5_resize_full_image
+    description: "E5: resize full image to 512 instead of random/center crop"
+    config: configs/ablations/e5_resize_full_image.yaml
+    output_dir: outputs/ablations/e5_resize_full_image

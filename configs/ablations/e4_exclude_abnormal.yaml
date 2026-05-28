@@ -1,0 +1,28 @@
+project:
+  seed: 42
+
+data:
+  root: FDU_HairFollicleDataset
+  train_split: ImageSets/Main/train.txt
+  val_split: ImageSets/Main/val.txt
+  test_split: ImageSets/Main/test.txt
+  transform_mode: crop
+  exclude_classes:
+    - abnormal
+
+train:
+  device: cuda
+  input_size: 512
+  batch_size: 8
+  num_workers: 8
+  epochs: 50
+  learning_rate: 1.0e-6
+  sigma: 4
+  lambda_count: 0.1
+
+model:
+  pretrained: false
+  non_negative: true
+
+output:
+  root: outputs/ablations/e4_exclude_abnormal

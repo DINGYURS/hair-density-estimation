@@ -37,6 +37,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sigma", type=float, default=None)
     parser.add_argument("--lambda-count", type=float, default=None)
     parser.add_argument("--downsample", type=int, default=8)
+    parser.add_argument("--transform-mode", choices=("crop", "resize"), default=None)
+    parser.add_argument("--include-class", action="append", default=None)
+    parser.add_argument("--exclude-class", action="append", default=None)
     parser.add_argument("--pretrained", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--no-augment", action="store_true")
     parser.add_argument("--output-dir", type=Path, default=None)
@@ -84,6 +87,9 @@ def build_dataset(
     sigma: float,
     downsample: int,
     augment: bool,
+    transform_mode: str,
+    include_classes: list[str] | None,
+    exclude_classes: list[str] | None,
 ) -> FduDensityDataset:
     data_cfg = config["data"]
     split_key = f"{split}_split"
@@ -95,6 +101,9 @@ def build_dataset(
         downsample=downsample,
         training=split == "train",
         augment=augment if split == "train" else False,
+        transform_mode=transform_mode,
+        include_classes=include_classes,
+        exclude_classes=exclude_classes,
     )
 
 
@@ -285,6 +294,18 @@ def main() -> None:
     lambda_count = (
         args.lambda_count if args.lambda_count is not None else float(train_cfg["lambda_count"])
     )
+    data_cfg = config.get("data", {})
+    transform_mode = (
+        args.transform_mode
+        if args.transform_mode is not None
+        else str(data_cfg.get("transform_mode", "crop"))
+    )
+    include_classes = (
+        args.include_class if args.include_class is not None else data_cfg.get("include_classes")
+    )
+    exclude_classes = (
+        args.exclude_class if args.exclude_class is not None else data_cfg.get("exclude_classes")
+    )
     pretrained = (
         args.pretrained if args.pretrained is not None else bool(model_cfg.get("pretrained", False))
     )
@@ -293,7 +314,8 @@ def main() -> None:
 
     LOGGER.info(
         "config=%s device=%s batch_size=%d num_workers=%d epochs=%d lr=%g "
-        "input_size=%d sigma=%g lambda_count=%g pretrained=%s",
+        "input_size=%d sigma=%g lambda_count=%g transform_mode=%s "
+        "include_classes=%s exclude_classes=%s pretrained=%s",
         args.config,
         device,
         batch_size,
@@ -303,6 +325,9 @@ def main() -> None:
         input_size,
         sigma,
         lambda_count,
+        transform_mode,
+        include_classes,
+        exclude_classes,
         pretrained,
     )
 
@@ -313,6 +338,9 @@ def main() -> None:
         sigma=sigma,
         downsample=args.downsample,
         augment=not args.no_augment,
+        transform_mode=transform_mode,
+        include_classes=include_classes,
+        exclude_classes=exclude_classes,
     )
     val_dataset = build_dataset(
         config,
@@ -321,6 +349,9 @@ def main() -> None:
         sigma=sigma,
         downsample=args.downsample,
         augment=False,
+        transform_mode=transform_mode,
+        include_classes=include_classes,
+        exclude_classes=exclude_classes,
     )
     train_loader = build_loader(train_dataset, batch_size, num_workers, True, device)
     val_loader = build_loader(val_dataset, batch_size, num_workers, False, device)
