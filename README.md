@@ -176,3 +176,36 @@ python eval.py --config configs/csrnet_fdu.yaml --checkpoint outputs/checkpoints
 ```
 
 评估完成后，将 val/test 的 MAE、RMSE 和 checkpoint 路径记录到 [docs/experiment_log.md](docs/experiment_log.md)。
+
+## 单图推理
+
+阶段七推理脚本会加载 checkpoint，对单张图片生成预测 count、密度热力图和原图叠加热力图。第一版推理与验证集保持一致，使用中心裁剪后的固定尺寸输入；如果输入图片在 FDU 数据集中且能找到同名 XML，会在图上标注该裁剪区域内的 GT count、预测 count 和误差。
+
+本地 CPU smoke test：
+
+```powershell
+conda activate hair-density
+python infer.py `
+  --config configs/csrnet_fdu.yaml `
+  --checkpoint outputs/checkpoints/csrnet_best.pth `
+  --image FDU_HairFollicleDataset/Images/220105_A095_1.jpg `
+  --device cpu
+```
+
+远程 GPU 推理：
+
+```bash
+conda activate hair-density-train
+python infer.py \
+  --config configs/csrnet_fdu.yaml \
+  --checkpoint outputs/checkpoints/csrnet_best.pth \
+  --image FDU_HairFollicleDataset/Images/220105_A095_1.jpg \
+  --device cuda
+```
+
+默认输出：
+
+```text
+outputs/predictions/single/<image_id>_heatmap.jpg
+outputs/predictions/single/<image_id>_overlay.jpg
+```
