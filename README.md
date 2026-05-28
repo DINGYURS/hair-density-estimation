@@ -119,3 +119,60 @@ FDU_HairFollicleDataset/
 3. `FDU_HairFollicleDataset/` 不提交 Git，使用 `scp`、`rsync` 或其他文件同步方式单独上传到远程主机。
 4. 远程训练前执行 `git pull` 或重新同步代码。
 5. 远程训练产物保留在 `outputs/checkpoints/`、`outputs/logs/`、`outputs/predictions/`，重要结果再下载回 Windows 本地。
+
+## 训练
+
+本地 CPU 只建议做小范围 smoke test：
+
+```powershell
+conda activate hair-density
+python train.py --config configs/csrnet_fdu.yaml --device cpu --batch-size 1 --num-workers 0 --epochs 1 --max-train-batches 1 --max-val-batches 1
+```
+
+远程 RTX 4090 正式训练：
+
+```bash
+conda activate hair-density-train
+python train.py --config configs/csrnet_fdu.yaml --device cuda
+```
+
+默认 best checkpoint 保存到：
+
+```text
+outputs/checkpoints/csrnet_best.pth
+```
+
+## 评估
+
+阶段六评估脚本会加载 checkpoint，在 `val` 或 `test` split 上输出 MAE、RMSE，并保存逐图预测 CSV。
+
+远程测试集评估：
+
+```bash
+conda activate hair-density-train
+python eval.py \
+  --config configs/csrnet_fdu.yaml \
+  --checkpoint outputs/checkpoints/csrnet_best.pth \
+  --split test \
+  --device cuda
+```
+
+输出：
+
+```text
+outputs/predictions/test_predictions.csv
+```
+
+CSV 字段：
+
+```text
+image_id,gt_count,pred_count,abs_error,squared_error
+```
+
+如果只想先验证评估链路，可以限制 batch 数：
+
+```bash
+python eval.py --config configs/csrnet_fdu.yaml --checkpoint outputs/checkpoints/csrnet_best.pth --split val --device cuda --max-batches 1
+```
+
+评估完成后，将 val/test 的 MAE、RMSE 和 checkpoint 路径记录到 [docs/experiment_log.md](docs/experiment_log.md)。
