@@ -201,11 +201,7 @@ def stitch_window_densities(
     covered = weights > 0.0
     if not bool(np.all(covered)):
         raise RuntimeError("Sliding windows did not cover the full image.")
-    before_sum = sum(float(density.sum(dtype=np.float64)) for density in densities)
     full_density[covered] /= weights[covered]
-    after_sum = float(full_density.sum(dtype=np.float64))
-    if before_sum > 0.0 and after_sum > 0.0:
-        full_density *= before_sum / after_sum
     return full_density
 
 

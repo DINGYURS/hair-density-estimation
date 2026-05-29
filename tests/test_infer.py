@@ -130,6 +130,24 @@ class InferTest(unittest.TestCase):
         self.assertEqual(full_density.shape, (512, 1024))
         self.assertAlmostEqual(float(full_density.sum()), 3.0, places=4)
 
+    def test_stitch_window_densities_does_not_double_count_overlapping_windows(self) -> None:
+        windows = [
+            (0, 0, 512, 512),
+            (256, 0, 768, 512),
+        ]
+        densities = [
+            np.full((64, 64), 1.0 / (64 * 64), dtype=np.float32),
+            np.full((64, 64), 1.0 / (64 * 64), dtype=np.float32),
+        ]
+
+        full_density = stitch_window_densities(
+            windows=windows,
+            densities=densities,
+            output_size=(512, 768),
+        )
+
+        self.assertAlmostEqual(float(full_density.sum()), 1.5, places=3)
+
     def test_make_blend_weight_downweights_patch_edges(self) -> None:
         weight = make_blend_weight(height=512, width=512, edge_floor=0.05)
 
