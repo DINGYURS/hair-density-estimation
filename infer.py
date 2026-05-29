@@ -17,7 +17,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from eval import load_config, load_model_from_checkpoint, resolve_device
-from src.datasets.fdu_dataset import IMAGENET_MEAN, IMAGENET_STD
+from src.datasets.fdu_dataset import IMAGENET_MEAN, IMAGENET_STD, filter_objects_by_class
 from src.utils.density_map import bbox_to_points
 from src.utils.metrics import count_from_density
 from src.utils.visualize import density_to_heatmap, overlay_heatmap
@@ -113,6 +113,8 @@ def load_crop_gt_count(
     data_root: str | Path,
     input_size: int,
     xml_path: str | Path | None = None,
+    include_classes: list[str] | tuple[str, ...] | set[str] | None = None,
+    exclude_classes: list[str] | tuple[str, ...] | set[str] | None = None,
 ) -> float | None:
     image_path = Path(image_path)
     data_root = Path(data_root)
@@ -126,7 +128,12 @@ def load_crop_gt_count(
     _, (left, top, right, bottom) = _center_crop_bgr(image_bgr, input_size)
 
     annotation = parse_voc_xml(resolved_xml)
-    points = bbox_to_points(annotation.objects)
+    objects = filter_objects_by_class(
+        annotation.objects,
+        include_classes=set(include_classes) if include_classes else None,
+        exclude_classes=set(exclude_classes) if exclude_classes else None,
+    )
+    points = bbox_to_points(objects)
     crop_points = [
         (x, y)
         for x, y in points
@@ -148,6 +155,47 @@ def predict_density(
     return density_np, pred_count
 
 
+def format_inference_label_lines(
+    image_id: str,
+    pred_count: float,
+    gt_count: float | None,
+) -> list[str]:
+    if gt_count is None:
+        return [image_id, f"pred={pred_count:.2f}"]
+    return [
+        image_id,
+        f"gt={gt_count:.2f}  pred={pred_count:.2f}  err={abs(pred_count - gt_count):.2f}",
+    ]
+
+
+def _draw_text_with_outline(
+    image: np.ndarray,
+    text: str,
+    origin: tuple[int, int],
+    font_scale: float,
+) -> None:
+    cv2.putText(
+        image,
+        text,
+        origin,
+        cv2.FONT_HERSHEY_SIMPLEX,
+        font_scale,
+        (255, 255, 255),
+        2,
+        cv2.LINE_AA,
+    )
+    cv2.putText(
+        image,
+        text,
+        origin,
+        cv2.FONT_HERSHEY_SIMPLEX,
+        font_scale,
+        (20, 20, 20),
+        1,
+        cv2.LINE_AA,
+    )
+
+
 def _draw_inference_label(
     image_bgr: np.ndarray,
     image_id: str,
@@ -155,30 +203,8 @@ def _draw_inference_label(
     gt_count: float | None,
 ) -> np.ndarray:
     output = image_bgr.copy()
-    if gt_count is None:
-        text = f"{image_id}  pred={pred_count:.2f}"
-    else:
-        text = f"{image_id}  gt={gt_count:.2f}  pred={pred_count:.2f}  err={abs(pred_count - gt_count):.2f}"
-    cv2.putText(
-        output,
-        text,
-        (12, 28),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.72,
-        (255, 255, 255),
-        2,
-        cv2.LINE_AA,
-    )
-    cv2.putText(
-        output,
-        text,
-        (12, 28),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.72,
-        (20, 20, 20),
-        1,
-        cv2.LINE_AA,
-    )
+    for line_index, line in enumerate(format_inference_label_lines(image_id, pred_count, gt_count)):
+        _draw_text_with_outline(output, line, (12, 28 + line_index * 28), 0.68)
     return output
 
 
@@ -228,6 +254,8 @@ def main() -> None:
     device_name = args.device if args.device is not None else str(train_cfg.get("device", "cpu"))
     device = resolve_device(device_name)
     input_size = args.input_size if args.input_size is not None else int(train_cfg["input_size"])
+    include_classes = data_cfg.get("include_classes")
+    exclude_classes = data_cfg.get("exclude_classes")
     output_dir = (
         args.output_dir
         if args.output_dir is not None
@@ -252,6 +280,8 @@ def main() -> None:
         data_root=Path(data_cfg["root"]),
         input_size=input_size,
         xml_path=args.xml,
+        include_classes=include_classes,
+        exclude_classes=exclude_classes,
     )
     result = save_inference_visualizations(
         image_bgr=cropped_bgr,
