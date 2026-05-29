@@ -54,7 +54,7 @@ def parse_args() -> argparse.Namespace:
         "--stride",
         type=int,
         default=None,
-        help="Sliding-window stride in pixels. Defaults to input-size, i.e. non-overlapping windows with edge coverage.",
+        help="Sliding-window stride in pixels. Defaults to input-size // 2 for smoother overlapping fusion.",
     )
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--alpha", type=float, default=0.4)
@@ -143,12 +143,43 @@ def generate_sliding_windows(
     ]
 
 
+def resolve_sliding_stride(requested_stride: int | None, input_size: int) -> int:
+    if input_size <= 0:
+        raise ValueError(f"input_size must be positive, got {input_size}")
+    if requested_stride is not None:
+        if requested_stride <= 0:
+            raise ValueError(f"stride must be positive, got {requested_stride}")
+        return int(requested_stride)
+    return max(1, int(input_size) // 2)
+
+
+def make_blend_weight(height: int, width: int, edge_floor: float = 0.05) -> np.ndarray:
+    """Create a center-weighted 2D window to reduce patch-edge seam artifacts."""
+    if height <= 0 or width <= 0:
+        raise ValueError(f"height and width must be positive, got {height}x{width}")
+    if not 0.0 <= float(edge_floor) < 1.0:
+        raise ValueError(f"edge_floor must be in [0, 1), got {edge_floor}")
+
+    y = np.hanning(max(3, int(height))).astype(np.float32)
+    x = np.hanning(max(3, int(width))).astype(np.float32)
+    if y.shape[0] != height:
+        y = cv2.resize(y[:, None], (1, int(height)), interpolation=cv2.INTER_LINEAR).ravel()
+    if x.shape[0] != width:
+        x = cv2.resize(x[None, :], (int(width), 1), interpolation=cv2.INTER_LINEAR).ravel()
+
+    weight = np.outer(y, x).astype(np.float32)
+    max_value = float(weight.max())
+    if max_value > 0.0:
+        weight /= max_value
+    return np.clip(weight, float(edge_floor), 1.0).astype(np.float32)
+
+
 def stitch_window_densities(
     windows: list[tuple[int, int, int, int]],
     densities: list[np.ndarray],
     output_size: tuple[int, int],
 ) -> np.ndarray:
-    """Stitch patch density maps into a full-size density map by averaging overlaps."""
+    """Stitch patch density maps into a full-size density map with weighted overlap blending."""
     if len(windows) != len(densities):
         raise ValueError("windows and densities must have the same length")
     output_height, output_width = output_size
@@ -163,13 +194,18 @@ def stitch_window_densities(
             density,
             output_size=(patch_height, patch_width),
         )
-        full_density[top:bottom, left:right] += resized_density
-        weights[top:bottom, left:right] += 1.0
+        blend_weight = make_blend_weight(patch_height, patch_width)
+        full_density[top:bottom, left:right] += resized_density * blend_weight
+        weights[top:bottom, left:right] += blend_weight
 
     covered = weights > 0.0
     if not bool(np.all(covered)):
         raise RuntimeError("Sliding windows did not cover the full image.")
+    before_sum = sum(float(density.sum(dtype=np.float64)) for density in densities)
     full_density[covered] /= weights[covered]
+    after_sum = float(full_density.sum(dtype=np.float64))
+    if before_sum > 0.0 and after_sum > 0.0:
+        full_density *= before_sum / after_sum
     return full_density
 
 
@@ -378,7 +414,7 @@ def main() -> None:
     device_name = args.device if args.device is not None else str(train_cfg.get("device", "cpu"))
     device = resolve_device(device_name)
     input_size = args.input_size if args.input_size is not None else int(train_cfg["input_size"])
-    stride = args.stride if args.stride is not None else input_size
+    stride = resolve_sliding_stride(args.stride, input_size)
     include_classes = data_cfg.get("include_classes")
     exclude_classes = data_cfg.get("exclude_classes")
     output_dir = (

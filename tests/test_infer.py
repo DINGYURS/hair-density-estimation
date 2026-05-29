@@ -12,7 +12,9 @@ from infer import (
     generate_sliding_windows,
     load_crop_gt_count,
     load_full_gt_count,
+    make_blend_weight,
     preprocess_image,
+    resolve_sliding_stride,
     save_inference_visualizations,
     stitch_window_densities,
 )
@@ -127,6 +129,17 @@ class InferTest(unittest.TestCase):
 
         self.assertEqual(full_density.shape, (512, 1024))
         self.assertAlmostEqual(float(full_density.sum()), 3.0, places=4)
+
+    def test_make_blend_weight_downweights_patch_edges(self) -> None:
+        weight = make_blend_weight(height=512, width=512, edge_floor=0.05)
+
+        self.assertEqual(weight.shape, (512, 512))
+        self.assertGreater(float(weight[256, 256]), float(weight[0, 0]))
+        self.assertGreaterEqual(float(weight.min()), 0.05)
+
+    def test_default_sliding_stride_uses_half_patch_overlap(self) -> None:
+        self.assertEqual(resolve_sliding_stride(None, input_size=512), 256)
+        self.assertEqual(resolve_sliding_stride(384, input_size=512), 384)
 
     def test_load_full_gt_count_applies_class_filter_without_cropping(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
