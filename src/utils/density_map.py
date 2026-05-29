@@ -48,12 +48,50 @@ def resize_density_map_keep_count(
     return resized
 
 
+def compute_adaptive_sigmas(
+    points: Iterable[Point],
+    beta: float = 0.3,
+    min_sigma: float = 1.0,
+    max_sigma: float = 32.0,
+    fallback_sigma: float = 4.0,
+) -> list[float]:
+    """Compute per-point sigma from nearest-neighbor distance."""
+    point_list = [(float(x), float(y)) for x, y in points]
+    if beta <= 0:
+        raise ValueError(f"beta must be positive, got {beta}")
+    if min_sigma <= 0 or max_sigma <= 0:
+        raise ValueError("min_sigma and max_sigma must be positive")
+    if min_sigma > max_sigma:
+        raise ValueError(f"min_sigma must be <= max_sigma, got {min_sigma}>{max_sigma}")
+    if fallback_sigma <= 0:
+        raise ValueError(f"fallback_sigma must be positive, got {fallback_sigma}")
+    if len(point_list) <= 1:
+        sigma = min(max(float(fallback_sigma), float(min_sigma)), float(max_sigma))
+        return [sigma for _ in point_list]
+
+    sigmas: list[float] = []
+    for index, (x, y) in enumerate(point_list):
+        nearest = min(
+            math.hypot(x - other_x, y - other_y)
+            for other_index, (other_x, other_y) in enumerate(point_list)
+            if other_index != index
+        )
+        sigma = min(max(float(beta) * float(nearest), float(min_sigma)), float(max_sigma))
+        sigmas.append(sigma)
+    return sigmas
+
+
 def make_density_map(
     points: Iterable[Point],
     height: int,
     width: int,
     sigma: float,
     downsample: int = 1,
+    sigma_mode: str = "fixed",
+    adaptive_sigma_beta: float = 0.3,
+    adaptive_sigma_min: float = 1.0,
+    adaptive_sigma_max: float = 32.0,
+    adaptive_sigma_fallback: float | None = None,
 ) -> np.ndarray:
     """Create a Gaussian density map from point annotations.
 
@@ -67,14 +105,28 @@ def make_density_map(
         raise ValueError(f"sigma must be positive, got {sigma}")
     if downsample <= 0:
         raise ValueError(f"downsample must be positive, got {downsample}")
+    if sigma_mode not in {"fixed", "adaptive"}:
+        raise ValueError(f"sigma_mode must be 'fixed' or 'adaptive', got {sigma_mode}")
+
+    point_list = [(float(x), float(y)) for x, y in points]
+    if sigma_mode == "adaptive":
+        point_sigmas = compute_adaptive_sigmas(
+            point_list,
+            beta=adaptive_sigma_beta,
+            min_sigma=adaptive_sigma_min,
+            max_sigma=adaptive_sigma_max,
+            fallback_sigma=float(sigma if adaptive_sigma_fallback is None else adaptive_sigma_fallback),
+        )
+    else:
+        point_sigmas = [float(sigma) for _ in point_list]
 
     density = np.zeros((int(height), int(width)), dtype=np.float32)
-    radius = max(1, int(math.ceil(float(sigma) * 3.0)))
 
-    for x, y in points:
+    for (x, y), point_sigma in zip(point_list, point_sigmas, strict=True):
         if not (0.0 <= x < width and 0.0 <= y < height):
             continue
 
+        radius = max(1, int(math.ceil(float(point_sigma) * 3.0)))
         center_x = int(round(x))
         center_y = int(round(y))
         x1 = max(0, center_x - radius)
@@ -87,9 +139,9 @@ def make_density_map(
         xs = np.arange(x1, x2, dtype=np.float32) - float(x)
         ys = np.arange(y1, y2, dtype=np.float32) - float(y)
         xx, yy = np.meshgrid(xs, ys)
-        kernel = np.exp(-(xx * xx + yy * yy) / (2.0 * float(sigma) * float(sigma))).astype(
-            np.float32
-        )
+        kernel = np.exp(
+            -(xx * xx + yy * yy) / (2.0 * float(point_sigma) * float(point_sigma))
+        ).astype(np.float32)
 
         kernel_sum = float(kernel.sum(dtype=np.float64))
         if kernel_sum > 0.0:

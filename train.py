@@ -35,11 +35,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--learning-rate", type=float, default=None)
     parser.add_argument("--input-size", type=int, default=None)
     parser.add_argument("--sigma", type=float, default=None)
+    parser.add_argument("--sigma-mode", choices=("fixed", "adaptive"), default=None)
+    parser.add_argument("--adaptive-sigma-beta", type=float, default=None)
     parser.add_argument("--lambda-count", type=float, default=None)
     parser.add_argument("--downsample", type=int, default=8)
     parser.add_argument("--transform-mode", choices=("crop", "resize"), default=None)
     parser.add_argument("--include-class", action="append", default=None)
     parser.add_argument("--exclude-class", action="append", default=None)
+    parser.add_argument("--freeze-frontend", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--pretrained", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--no-augment", action="store_true")
     parser.add_argument("--output-dir", type=Path, default=None)
@@ -85,6 +88,8 @@ def build_dataset(
     split: str,
     input_size: int,
     sigma: float,
+    sigma_mode: str,
+    adaptive_sigma_beta: float,
     downsample: int,
     augment: bool,
     transform_mode: str,
@@ -98,6 +103,8 @@ def build_dataset(
         split_file=Path(data_cfg[split_key]),
         input_size=input_size,
         sigma=sigma,
+        sigma_mode=sigma_mode,
+        adaptive_sigma_beta=adaptive_sigma_beta,
         downsample=downsample,
         training=split == "train",
         augment=augment if split == "train" else False,
@@ -138,6 +145,16 @@ def compute_loss(
     count_loss = torch.mean(torch.abs(pred_count - gt_count))
     loss = mse_loss + float(lambda_count) * count_loss
     return loss, mse_loss, count_loss
+
+
+def apply_freeze_frontend(model: CSRNet, freeze_frontend: bool) -> None:
+    """Freeze or unfreeze CSRNet frontend parameters."""
+    for parameter in model.frontend.parameters():
+        parameter.requires_grad = not freeze_frontend
+
+
+def trainable_parameters(model: nn.Module) -> list[nn.Parameter]:
+    return [parameter for parameter in model.parameters() if parameter.requires_grad]
 
 
 def run_train_epoch(
@@ -291,6 +308,14 @@ def main() -> None:
     )
     input_size = args.input_size if args.input_size is not None else int(train_cfg["input_size"])
     sigma = args.sigma if args.sigma is not None else float(train_cfg["sigma"])
+    sigma_mode = (
+        args.sigma_mode if args.sigma_mode is not None else str(train_cfg.get("sigma_mode", "fixed"))
+    )
+    adaptive_sigma_beta = (
+        args.adaptive_sigma_beta
+        if args.adaptive_sigma_beta is not None
+        else float(train_cfg.get("adaptive_sigma_beta", 0.3))
+    )
     lambda_count = (
         args.lambda_count if args.lambda_count is not None else float(train_cfg["lambda_count"])
     )
@@ -309,13 +334,19 @@ def main() -> None:
     pretrained = (
         args.pretrained if args.pretrained is not None else bool(model_cfg.get("pretrained", False))
     )
+    freeze_frontend = (
+        args.freeze_frontend
+        if args.freeze_frontend is not None
+        else bool(model_cfg.get("freeze_frontend", False))
+    )
     output_dir = args.output_dir if args.output_dir is not None else Path(output_cfg.get("root", "outputs"))
     checkpoint_path = output_dir / "checkpoints" / "csrnet_best.pth"
 
     LOGGER.info(
         "config=%s device=%s batch_size=%d num_workers=%d epochs=%d lr=%g "
-        "input_size=%d sigma=%g lambda_count=%g transform_mode=%s "
-        "include_classes=%s exclude_classes=%s pretrained=%s",
+        "input_size=%d sigma=%g sigma_mode=%s adaptive_sigma_beta=%g "
+        "lambda_count=%g transform_mode=%s include_classes=%s exclude_classes=%s "
+        "pretrained=%s freeze_frontend=%s",
         args.config,
         device,
         batch_size,
@@ -324,11 +355,14 @@ def main() -> None:
         learning_rate,
         input_size,
         sigma,
+        sigma_mode,
+        adaptive_sigma_beta,
         lambda_count,
         transform_mode,
         include_classes,
         exclude_classes,
         pretrained,
+        freeze_frontend,
     )
 
     train_dataset = build_dataset(
@@ -336,6 +370,8 @@ def main() -> None:
         split="train",
         input_size=input_size,
         sigma=sigma,
+        sigma_mode=sigma_mode,
+        adaptive_sigma_beta=adaptive_sigma_beta,
         downsample=args.downsample,
         augment=not args.no_augment,
         transform_mode=transform_mode,
@@ -347,6 +383,8 @@ def main() -> None:
         split="val",
         input_size=input_size,
         sigma=sigma,
+        sigma_mode=sigma_mode,
+        adaptive_sigma_beta=adaptive_sigma_beta,
         downsample=args.downsample,
         augment=False,
         transform_mode=transform_mode,
@@ -357,16 +395,21 @@ def main() -> None:
     val_loader = build_loader(val_dataset, batch_size, num_workers, False, device)
 
     model = CSRNet(pretrained=pretrained, non_negative=bool(model_cfg.get("non_negative", True)))
+    apply_freeze_frontend(model, freeze_frontend=freeze_frontend)
     model.to(device)
     total_params, trainable_params = count_parameters(model)
     LOGGER.info(
-        "model=CSRNet total_params=%d trainable_params=%d pretrained_loaded=%s",
+        "model=CSRNet total_params=%d trainable_params=%d pretrained_loaded=%s freeze_frontend=%s",
         total_params,
         trainable_params,
         model.pretrained,
+        freeze_frontend,
     )
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    optimizer_parameters = trainable_parameters(model)
+    if not optimizer_parameters:
+        raise RuntimeError("No trainable parameters remain after applying model freeze settings.")
+    optimizer = torch.optim.Adam(optimizer_parameters, lr=learning_rate)
     best_mae = float("inf")
 
     for epoch in range(1, epochs + 1):

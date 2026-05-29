@@ -64,6 +64,10 @@ class FduDensityDataset(Dataset[dict[str, Any]]):
         split_file: str | Path,
         input_size: int = 512,
         sigma: float = 4.0,
+        sigma_mode: str = "fixed",
+        adaptive_sigma_beta: float = 0.3,
+        adaptive_sigma_min: float = 1.0,
+        adaptive_sigma_max: float = 32.0,
         downsample: int = 8,
         training: bool = True,
         augment: bool = True,
@@ -75,6 +79,10 @@ class FduDensityDataset(Dataset[dict[str, Any]]):
         self.split_file = self._resolve_split_file(split_file)
         self.input_size = int(input_size)
         self.sigma = float(sigma)
+        self.sigma_mode = str(sigma_mode)
+        self.adaptive_sigma_beta = float(adaptive_sigma_beta)
+        self.adaptive_sigma_min = float(adaptive_sigma_min)
+        self.adaptive_sigma_max = float(adaptive_sigma_max)
         self.downsample = int(downsample)
         self.training = bool(training)
         self.augment = bool(augment)
@@ -86,6 +94,8 @@ class FduDensityDataset(Dataset[dict[str, Any]]):
             raise ValueError(f"input_size must be positive, got {input_size}")
         if self.downsample <= 0:
             raise ValueError(f"downsample must be positive, got {downsample}")
+        if self.sigma_mode not in {"fixed", "adaptive"}:
+            raise ValueError(f"sigma_mode must be 'fixed' or 'adaptive', got {sigma_mode}")
         if self.transform_mode not in {"crop", "resize"}:
             raise ValueError(f"transform_mode must be 'crop' or 'resize', got {transform_mode}")
         if self.include_classes and self.exclude_classes:
@@ -134,6 +144,10 @@ class FduDensityDataset(Dataset[dict[str, Any]]):
             width=crop_width,
             sigma=self.sigma,
             downsample=self.downsample,
+            sigma_mode=self.sigma_mode,
+            adaptive_sigma_beta=self.adaptive_sigma_beta,
+            adaptive_sigma_min=self.adaptive_sigma_min,
+            adaptive_sigma_max=self.adaptive_sigma_max,
         )
 
         image_tensor = self._to_image_tensor(image)

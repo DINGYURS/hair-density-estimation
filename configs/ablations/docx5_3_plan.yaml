@@ -1,0 +1,25 @@
+experiments:
+  - id: e4_exclude_abnormal_reference
+    description: "Reference: current best FDU baseline, sigma=4, lambda_count=0.1, exclude abnormal"
+    config: configs/ablations/e4_exclude_abnormal.yaml
+    output_dir: outputs/ablations/e4_exclude_abnormal
+  - id: docx5_3_e1_adaptive_sigma_beta03
+    description: "DOCX 5.3 E1: adaptive sigma with beta=0.3"
+    config: configs/ablations/docx5_3_e1_adaptive_sigma_beta03.yaml
+    output_dir: outputs/ablations/docx5_3_e1_adaptive_sigma_beta03
+  - id: docx5_3_e2_lambda02
+    description: "DOCX 5.3 E2: MSE + lambda_count=0.2"
+    config: configs/ablations/docx5_3_e2_lambda02.yaml
+    output_dir: outputs/ablations/docx5_3_e2_lambda02
+  - id: docx5_3_e2_lambda03
+    description: "DOCX 5.3 E2: MSE + lambda_count=0.3"
+    config: configs/ablations/docx5_3_e2_lambda03.yaml
+    output_dir: outputs/ablations/docx5_3_e2_lambda03
+  - id: docx5_3_e3_full_finetune_pretrained
+    description: "DOCX 5.3 E3: ImageNet pretrained frontend, full fine-tuning"
+    config: configs/ablations/docx5_3_e3_full_finetune_pretrained.yaml
+    output_dir: outputs/ablations/docx5_3_e3_full_finetune_pretrained
+  - id: docx5_3_e3_freeze_frontend_pretrained
+    description: "DOCX 5.3 E3: ImageNet pretrained frontend, freeze frontend"
+    config: configs/ablations/docx5_3_e3_freeze_frontend_pretrained.yaml
+    output_dir: outputs/ablations/docx5_3_e3_freeze_frontend_pretrained

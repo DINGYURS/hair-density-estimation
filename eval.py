@@ -49,6 +49,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--num-workers", type=int, default=None)
     parser.add_argument("--input-size", type=int, default=None)
     parser.add_argument("--sigma", type=float, default=None)
+    parser.add_argument("--sigma-mode", choices=("fixed", "adaptive"), default=None)
+    parser.add_argument("--adaptive-sigma-beta", type=float, default=None)
     parser.add_argument("--downsample", type=int, default=8)
     parser.add_argument("--transform-mode", choices=("crop", "resize"), default=None)
     parser.add_argument("--include-class", action="append", default=None)
@@ -86,6 +88,8 @@ def build_eval_dataset(
     split: str,
     input_size: int,
     sigma: float,
+    sigma_mode: str,
+    adaptive_sigma_beta: float,
     downsample: int,
     transform_mode: str,
     include_classes: list[str] | None,
@@ -100,6 +104,8 @@ def build_eval_dataset(
         split_file=Path(data_cfg[split_key]),
         input_size=input_size,
         sigma=sigma,
+        sigma_mode=sigma_mode,
+        adaptive_sigma_beta=adaptive_sigma_beta,
         downsample=downsample,
         training=False,
         augment=False,
@@ -220,6 +226,14 @@ def main() -> None:
     )
     input_size = args.input_size if args.input_size is not None else int(train_cfg["input_size"])
     sigma = args.sigma if args.sigma is not None else float(train_cfg["sigma"])
+    sigma_mode = (
+        args.sigma_mode if args.sigma_mode is not None else str(train_cfg.get("sigma_mode", "fixed"))
+    )
+    adaptive_sigma_beta = (
+        args.adaptive_sigma_beta
+        if args.adaptive_sigma_beta is not None
+        else float(train_cfg.get("adaptive_sigma_beta", 0.3))
+    )
     data_cfg = config.get("data", {})
     transform_mode = (
         args.transform_mode
@@ -237,7 +251,8 @@ def main() -> None:
 
     LOGGER.info(
         "config=%s checkpoint=%s split=%s device=%s batch_size=%d num_workers=%d "
-        "input_size=%d sigma=%g transform_mode=%s include_classes=%s exclude_classes=%s",
+        "input_size=%d sigma=%g sigma_mode=%s adaptive_sigma_beta=%g "
+        "transform_mode=%s include_classes=%s exclude_classes=%s",
         args.config,
         args.checkpoint,
         args.split,
@@ -246,6 +261,8 @@ def main() -> None:
         num_workers,
         input_size,
         sigma,
+        sigma_mode,
+        adaptive_sigma_beta,
         transform_mode,
         include_classes,
         exclude_classes,
@@ -256,6 +273,8 @@ def main() -> None:
         split=args.split,
         input_size=input_size,
         sigma=sigma,
+        sigma_mode=sigma_mode,
+        adaptive_sigma_beta=adaptive_sigma_beta,
         downsample=args.downsample,
         transform_mode=transform_mode,
         include_classes=include_classes,
