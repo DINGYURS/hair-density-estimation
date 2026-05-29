@@ -5,7 +5,12 @@ import unittest
 
 import numpy as np
 
-from src.datasets.fdu_dataset import filter_objects_by_class, resize_image_and_points
+from src.datasets.fdu_dataset import (
+    filter_objects_by_class,
+    generate_sliding_crop_boxes,
+    resize_image_and_points,
+    select_sliding_crop_box,
+)
 from src.utils.voc_parser import VocObject
 from tools.ablation_matrix import ExperimentSpec, build_eval_command, build_train_command
 
@@ -30,6 +35,26 @@ class Stage8AblationTest(unittest.TestCase):
 
         self.assertEqual(resized.shape, (50, 50, 3))
         self.assertEqual(scaled_points, [(12.5, 12.5), (37.5, 37.5)])
+
+    def test_sliding_crop_boxes_match_full_image_inference_grid(self) -> None:
+        boxes = generate_sliding_crop_boxes(height=1024, width=1280, crop_size=512, stride=256)
+
+        self.assertEqual(len(boxes), 12)
+        self.assertEqual(boxes[0], (0, 0, 512, 512))
+        self.assertEqual(boxes[-1], (768, 512, 1280, 1024))
+
+    def test_select_sliding_crop_box_returns_metadata(self) -> None:
+        box, index, count = select_sliding_crop_box(
+            height=1024,
+            width=1280,
+            crop_size=512,
+            stride=256,
+            training=False,
+        )
+
+        self.assertIn(box, generate_sliding_crop_boxes(1024, 1280, 512, 256))
+        self.assertEqual(count, 12)
+        self.assertGreaterEqual(index, 0)
 
     def test_ablation_commands_are_scoped_to_experiment_output_dir(self) -> None:
         spec = ExperimentSpec(

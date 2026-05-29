@@ -52,7 +52,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sigma-mode", choices=("fixed", "adaptive"), default=None)
     parser.add_argument("--adaptive-sigma-beta", type=float, default=None)
     parser.add_argument("--downsample", type=int, default=8)
-    parser.add_argument("--transform-mode", choices=("crop", "resize"), default=None)
+    parser.add_argument("--transform-mode", choices=("crop", "resize", "sliding_crop"), default=None)
     parser.add_argument("--include-class", action="append", default=None)
     parser.add_argument("--exclude-class", action="append", default=None)
     parser.add_argument("--output-dir", type=Path, default=None)
@@ -110,6 +110,7 @@ def build_eval_dataset(
         training=False,
         augment=False,
         transform_mode=transform_mode,
+        sliding_stride=data_cfg.get("sliding_stride"),
         include_classes=include_classes,
         exclude_classes=exclude_classes,
     )

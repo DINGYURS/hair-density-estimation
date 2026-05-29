@@ -55,6 +55,62 @@ def resize_image_and_points(
     return resized, scaled_points
 
 
+def _axis_window_starts(length: int, crop_size: int, stride: int) -> list[int]:
+    if length <= 0:
+        raise ValueError(f"length must be positive, got {length}")
+    if crop_size <= 0:
+        raise ValueError(f"crop_size must be positive, got {crop_size}")
+    if stride <= 0:
+        raise ValueError(f"stride must be positive, got {stride}")
+    if length < crop_size:
+        raise ValueError(f"image dimension {length} is smaller than crop_size {crop_size}")
+
+    starts = list(range(0, max(length - crop_size + 1, 1), stride))
+    last_start = length - crop_size
+    if starts[-1] != last_start:
+        starts.append(last_start)
+    return starts
+
+
+def generate_sliding_crop_boxes(
+    height: int,
+    width: int,
+    crop_size: int,
+    stride: int,
+) -> list[tuple[int, int, int, int]]:
+    """Return the same fixed 512-style crop grid used by full-image sliding inference."""
+    y_starts = _axis_window_starts(int(height), int(crop_size), int(stride))
+    x_starts = _axis_window_starts(int(width), int(crop_size), int(stride))
+    return [
+        (left, top, left + int(crop_size), top + int(crop_size))
+        for top in y_starts
+        for left in x_starts
+    ]
+
+
+def select_sliding_crop_box(
+    height: int,
+    width: int,
+    crop_size: int,
+    stride: int,
+    training: bool,
+) -> tuple[tuple[int, int, int, int], int, int]:
+    boxes = generate_sliding_crop_boxes(height, width, crop_size, stride)
+    if training:
+        index = random.randrange(len(boxes))
+    else:
+        image_center_x = float(width) / 2.0
+        image_center_y = float(height) / 2.0
+        index = min(
+            range(len(boxes)),
+            key=lambda item: (
+                ((boxes[item][0] + boxes[item][2]) / 2.0 - image_center_x) ** 2
+                + ((boxes[item][1] + boxes[item][3]) / 2.0 - image_center_y) ** 2
+            ),
+        )
+    return boxes[index], int(index), len(boxes)
+
+
 class FduDensityDataset(Dataset[dict[str, Any]]):
     """FDU bbox-center density dataset for CSRNet-style training."""
 
@@ -72,6 +128,7 @@ class FduDensityDataset(Dataset[dict[str, Any]]):
         training: bool = True,
         augment: bool = True,
         transform_mode: str = "crop",
+        sliding_stride: int | None = None,
         include_classes: set[str] | list[str] | tuple[str, ...] | None = None,
         exclude_classes: set[str] | list[str] | tuple[str, ...] | None = None,
     ) -> None:
@@ -87,6 +144,9 @@ class FduDensityDataset(Dataset[dict[str, Any]]):
         self.training = bool(training)
         self.augment = bool(augment)
         self.transform_mode = str(transform_mode)
+        self.sliding_stride = (
+            max(1, self.input_size // 2) if sliding_stride is None else int(sliding_stride)
+        )
         self.include_classes = set(include_classes) if include_classes else None
         self.exclude_classes = set(exclude_classes) if exclude_classes else None
 
@@ -96,8 +156,12 @@ class FduDensityDataset(Dataset[dict[str, Any]]):
             raise ValueError(f"downsample must be positive, got {downsample}")
         if self.sigma_mode not in {"fixed", "adaptive"}:
             raise ValueError(f"sigma_mode must be 'fixed' or 'adaptive', got {sigma_mode}")
-        if self.transform_mode not in {"crop", "resize"}:
-            raise ValueError(f"transform_mode must be 'crop' or 'resize', got {transform_mode}")
+        if self.sliding_stride <= 0:
+            raise ValueError(f"sliding_stride must be positive, got {sliding_stride}")
+        if self.transform_mode not in {"crop", "resize", "sliding_crop"}:
+            raise ValueError(
+                f"transform_mode must be 'crop', 'resize', or 'sliding_crop', got {transform_mode}"
+            )
         if self.include_classes and self.exclude_classes:
             raise ValueError("include_classes and exclude_classes cannot both be set")
 
@@ -131,8 +195,12 @@ class FduDensityDataset(Dataset[dict[str, Any]]):
         if self.transform_mode == "resize":
             image, points = resize_image_and_points(image, points, self.input_size)
             crop_box = (0, 0, annotation.width, annotation.height)
+            crop_index = -1
+            crop_window_count = 1
         else:
-            image, points, crop_box = self._crop_image_and_points(image, points)
+            image, points, crop_box, crop_index, crop_window_count = self._crop_image_and_points(
+                image, points
+            )
         if self.training and self.augment:
             image, points = self._augment_spatial(image, points)
             image = self._augment_color(image)
@@ -160,6 +228,13 @@ class FduDensityDataset(Dataset[dict[str, Any]]):
             "count": count,
             "image_id": image_id,
             "crop_box": crop_box,
+            "crop_index": torch.tensor(int(crop_index), dtype=torch.int64),
+            "crop_window_count": torch.tensor(int(crop_window_count), dtype=torch.int64),
+            "crop_coverage": torch.tensor(
+                float((crop_box[2] - crop_box[0]) * (crop_box[3] - crop_box[1]))
+                / float(annotation.width * annotation.height),
+                dtype=torch.float32,
+            ),
             "original_count": len(annotation.objects),
             "filtered_original_count": len(objects),
         }
@@ -174,16 +249,29 @@ class FduDensityDataset(Dataset[dict[str, Any]]):
         self,
         image: np.ndarray,
         points: list[tuple[float, float]],
-    ) -> tuple[np.ndarray, list[tuple[float, float]], tuple[int, int, int, int]]:
+    ) -> tuple[np.ndarray, list[tuple[float, float]], tuple[int, int, int, int], int, int]:
         height, width = image.shape[:2]
         crop_size = min(self.input_size, height, width)
 
-        if self.training:
+        if self.transform_mode == "sliding_crop":
+            crop_box, crop_index, crop_window_count = select_sliding_crop_box(
+                height=height,
+                width=width,
+                crop_size=crop_size,
+                stride=self.sliding_stride,
+                training=self.training,
+            )
+            left, top, right, bottom = crop_box
+        elif self.training:
             left = random.randint(0, width - crop_size)
             top = random.randint(0, height - crop_size)
+            crop_index = -1
+            crop_window_count = 1
         else:
             left = (width - crop_size) // 2
             top = (height - crop_size) // 2
+            crop_index = -1
+            crop_window_count = 1
 
         right = left + crop_size
         bottom = top + crop_size
@@ -193,7 +281,7 @@ class FduDensityDataset(Dataset[dict[str, Any]]):
             for x, y in points
             if left <= x < right and top <= y < bottom
         ]
-        return cropped, cropped_points, (left, top, right, bottom)
+        return cropped, cropped_points, (left, top, right, bottom), crop_index, crop_window_count
 
     def _augment_spatial(
         self,

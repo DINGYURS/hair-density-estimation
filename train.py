@@ -39,7 +39,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--adaptive-sigma-beta", type=float, default=None)
     parser.add_argument("--lambda-count", type=float, default=None)
     parser.add_argument("--downsample", type=int, default=8)
-    parser.add_argument("--transform-mode", choices=("crop", "resize"), default=None)
+    parser.add_argument("--transform-mode", choices=("crop", "resize", "sliding_crop"), default=None)
     parser.add_argument("--include-class", action="append", default=None)
     parser.add_argument("--exclude-class", action="append", default=None)
     parser.add_argument("--freeze-frontend", action=argparse.BooleanOptionalAction, default=None)
@@ -109,6 +109,7 @@ def build_dataset(
         training=split == "train",
         augment=augment if split == "train" else False,
         transform_mode=transform_mode,
+        sliding_stride=data_cfg.get("sliding_stride"),
         include_classes=include_classes,
         exclude_classes=exclude_classes,
     )
@@ -374,7 +375,7 @@ def main() -> None:
         adaptive_sigma_beta=adaptive_sigma_beta,
         downsample=args.downsample,
         augment=not args.no_augment,
-        transform_mode=transform_mode,
+        transform_mode=str(data_cfg.get("train_transform_mode", transform_mode)),
         include_classes=include_classes,
         exclude_classes=exclude_classes,
     )
@@ -387,7 +388,7 @@ def main() -> None:
         adaptive_sigma_beta=adaptive_sigma_beta,
         downsample=args.downsample,
         augment=False,
-        transform_mode=transform_mode,
+        transform_mode=str(data_cfg.get("val_transform_mode", transform_mode)),
         include_classes=include_classes,
         exclude_classes=exclude_classes,
     )
