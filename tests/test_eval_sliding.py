@@ -7,6 +7,9 @@ import numpy as np
 import torch
 
 from eval_sliding import evaluate_sliding_image, read_split_image_ids, resolve_sliding_output_path
+from eval_sliding import write_sliding_predictions_csv
+from eval import PredictionRecord
+from calibrate_sliding import SlidingCalibration
 
 
 class ZeroDensityModel(torch.nn.Module):
@@ -66,6 +69,22 @@ class EvalSlidingTest(unittest.TestCase):
             self.assertEqual(record.image_id, "sample")
             self.assertEqual(record.gt_count, 1.0)
             self.assertEqual(record.pred_count, 0.0)
+
+    def test_write_sliding_predictions_csv_can_include_calibrated_counts(self) -> None:
+        records = [PredictionRecord("img_001", gt_count=10.0, pred_count=12.0)]
+        calibration = SlidingCalibration(slope=0.5, intercept=1.0, source="val.csv")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "predictions.csv"
+            write_sliding_predictions_csv(records, path, calibration=calibration)
+
+            self.assertEqual(
+                path.read_text(encoding="utf-8").splitlines(),
+                [
+                    "image_id,gt_count,pred_count,corrected_pred_count,abs_error,squared_error,corrected_abs_error,corrected_squared_error",
+                    "img_001,10.000000,12.000000,7.000000,2.000000,4.000000,3.000000,9.000000",
+                ],
+            )
 
 
 if __name__ == "__main__":

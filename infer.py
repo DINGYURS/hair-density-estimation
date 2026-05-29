@@ -17,6 +17,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from eval import load_config, load_model_from_checkpoint, resolve_device
+from calibrate_sliding import SlidingCalibration, apply_calibration, load_calibration
 from src.datasets.fdu_dataset import IMAGENET_MEAN, IMAGENET_STD, filter_objects_by_class
 from src.utils.density_map import bbox_to_points, resize_density_map_keep_count
 from src.utils.metrics import count_from_density
@@ -34,12 +35,19 @@ class InferenceResult:
     heatmap_path: Path
     overlay_path: Path
     gt_count: float | None = None
+    corrected_pred_count: float | None = None
 
     @property
     def abs_error(self) -> float | None:
         if self.gt_count is None:
             return None
         return abs(self.pred_count - self.gt_count)
+
+    @property
+    def corrected_abs_error(self) -> float | None:
+        if self.gt_count is None or self.corrected_pred_count is None:
+            return None
+        return abs(self.corrected_pred_count - self.gt_count)
 
 
 def parse_args() -> argparse.Namespace:
@@ -58,6 +66,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--alpha", type=float, default=0.4)
+    parser.add_argument("--calibration", type=Path, default=None)
     parser.add_argument(
         "--xml",
         type=Path,
@@ -315,7 +324,16 @@ def format_inference_label_lines(
     image_id: str,
     pred_count: float,
     gt_count: float | None,
+    calibration: SlidingCalibration | None = None,
 ) -> list[str]:
+    if calibration is not None:
+        corrected = apply_calibration(pred_count, calibration)
+        if gt_count is None:
+            return [image_id, f"raw={pred_count:.2f}  cal={corrected:.2f}"]
+        return [
+            image_id,
+            f"gt={gt_count:.2f}  raw={pred_count:.2f}  cal={corrected:.2f}  err={abs(corrected - gt_count):.2f}",
+        ]
     if gt_count is None:
         return [image_id, f"pred={pred_count:.2f}"]
     return [
@@ -357,9 +375,12 @@ def _draw_inference_label(
     image_id: str,
     pred_count: float,
     gt_count: float | None,
+    calibration: SlidingCalibration | None = None,
 ) -> np.ndarray:
     output = image_bgr.copy()
-    for line_index, line in enumerate(format_inference_label_lines(image_id, pred_count, gt_count)):
+    for line_index, line in enumerate(
+        format_inference_label_lines(image_id, pred_count, gt_count, calibration)
+    ):
         _draw_text_with_outline(output, line, (12, 28 + line_index * 28), 0.68)
     return output
 
@@ -372,6 +393,7 @@ def save_inference_visualizations(
     pred_count: float,
     gt_count: float | None = None,
     alpha: float = 0.4,
+    calibration: SlidingCalibration | None = None,
 ) -> InferenceResult:
     if not 0.0 <= float(alpha) <= 1.0:
         raise ValueError(f"alpha must be between 0 and 1, got {alpha}")
@@ -380,8 +402,8 @@ def save_inference_visualizations(
     output_dir.mkdir(parents=True, exist_ok=True)
     heatmap = density_to_heatmap(pred_density, output_size=image_bgr.shape[:2])
     overlay = overlay_heatmap(image_bgr, heatmap, alpha=alpha)
-    heatmap = _draw_inference_label(heatmap, image_id, pred_count, gt_count)
-    overlay = _draw_inference_label(overlay, image_id, pred_count, gt_count)
+    heatmap = _draw_inference_label(heatmap, image_id, pred_count, gt_count, calibration)
+    overlay = _draw_inference_label(overlay, image_id, pred_count, gt_count, calibration)
 
     heatmap_path = output_dir / f"{image_id}_heatmap.jpg"
     overlay_path = output_dir / f"{image_id}_overlay.jpg"
@@ -394,6 +416,9 @@ def save_inference_visualizations(
         image_id=image_id,
         pred_count=float(pred_count),
         gt_count=None if gt_count is None else float(gt_count),
+        corrected_pred_count=(
+            None if calibration is None else apply_calibration(pred_count, calibration)
+        ),
         heatmap_path=heatmap_path,
         overlay_path=overlay_path,
     )
@@ -413,6 +438,7 @@ def main() -> None:
     stride = resolve_sliding_stride(args.stride, input_size)
     include_classes = data_cfg.get("include_classes")
     exclude_classes = data_cfg.get("exclude_classes")
+    calibration = load_calibration(args.calibration) if args.calibration is not None else None
     output_dir = (
         args.output_dir
         if args.output_dir is not None
@@ -472,19 +498,25 @@ def main() -> None:
         pred_count=pred_count,
         gt_count=gt_count,
         alpha=args.alpha,
+        calibration=calibration,
     )
 
     if result.gt_count is None:
-        print(
-            f"image={result.image_id} pred_count={result.pred_count:.4f} "
-            f"heatmap={result.heatmap_path} overlay={result.overlay_path}"
-        )
+        message = f"image={result.image_id} pred_count={result.pred_count:.4f}"
+        if result.corrected_pred_count is not None:
+            message += f" corrected_pred_count={result.corrected_pred_count:.4f}"
+        print(f"{message} heatmap={result.heatmap_path} overlay={result.overlay_path}")
     else:
-        print(
+        message = (
             f"image={result.image_id} gt_count={result.gt_count:.4f} "
-            f"pred_count={result.pred_count:.4f} abs_error={result.abs_error:.4f} "
-            f"heatmap={result.heatmap_path} overlay={result.overlay_path}"
+            f"pred_count={result.pred_count:.4f} abs_error={result.abs_error:.4f}"
         )
+        if result.corrected_pred_count is not None:
+            message += (
+                f" corrected_pred_count={result.corrected_pred_count:.4f} "
+                f"corrected_abs_error={result.corrected_abs_error:.4f}"
+            )
+        print(f"{message} heatmap={result.heatmap_path} overlay={result.overlay_path}")
 
 
 if __name__ == "__main__":

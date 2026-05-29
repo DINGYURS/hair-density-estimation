@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import logging
 from pathlib import Path
 import sys
@@ -21,8 +22,8 @@ from eval import (
     load_model_from_checkpoint,
     resolve_device,
     setup_logging,
-    write_predictions_csv,
 )
+from calibrate_sliding import SlidingCalibration, apply_calibration, load_calibration
 from infer import load_full_gt_count, predict_sliding_density, resolve_sliding_stride
 
 
@@ -46,6 +47,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--max-images", type=int, default=None)
+    parser.add_argument("--calibration", type=Path, default=None)
     return parser.parse_args()
 
 
@@ -57,6 +59,77 @@ def read_split_image_ids(split_path: str | Path) -> list[str]:
 
 def resolve_sliding_output_path(output_dir: Path, split: str) -> Path:
     return output_dir / f"{split}_sliding_predictions.csv"
+
+
+def _squared_error(pred_count: float, gt_count: float) -> float:
+    error = float(pred_count) - float(gt_count)
+    return error * error
+
+
+def write_sliding_predictions_csv(
+    records: list[PredictionRecord],
+    output_path: Path,
+    calibration: SlidingCalibration | None = None,
+) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.writer(handle)
+        if calibration is None:
+            writer.writerow(["image_id", "gt_count", "pred_count", "abs_error", "squared_error"])
+            for record in records:
+                writer.writerow(
+                    [
+                        record.image_id,
+                        f"{record.gt_count:.6f}",
+                        f"{record.pred_count:.6f}",
+                        f"{record.abs_error:.6f}",
+                        f"{record.squared_error:.6f}",
+                    ]
+                )
+            return
+
+        writer.writerow(
+            [
+                "image_id",
+                "gt_count",
+                "pred_count",
+                "corrected_pred_count",
+                "abs_error",
+                "squared_error",
+                "corrected_abs_error",
+                "corrected_squared_error",
+            ]
+        )
+        for record in records:
+            corrected = apply_calibration(record.pred_count, calibration)
+            corrected_abs_error = abs(corrected - record.gt_count)
+            writer.writerow(
+                [
+                    record.image_id,
+                    f"{record.gt_count:.6f}",
+                    f"{record.pred_count:.6f}",
+                    f"{corrected:.6f}",
+                    f"{record.abs_error:.6f}",
+                    f"{record.squared_error:.6f}",
+                    f"{corrected_abs_error:.6f}",
+                    f"{_squared_error(corrected, record.gt_count):.6f}",
+                ]
+            )
+
+
+def compute_calibrated_summary(
+    records: list[PredictionRecord],
+    calibration: SlidingCalibration,
+) -> dict[str, float]:
+    corrected_records = [
+        PredictionRecord(
+            image_id=record.image_id,
+            gt_count=record.gt_count,
+            pred_count=apply_calibration(record.pred_count, calibration),
+        )
+        for record in records
+    ]
+    return compute_summary(corrected_records)
 
 
 def _image_path_for_id(data_root: Path, image_id: str) -> Path:
@@ -165,6 +238,7 @@ def main() -> None:
         else Path(output_cfg.get("root", "outputs")) / "predictions"
     )
     output_path = resolve_sliding_output_path(output_dir, args.split)
+    calibration = load_calibration(args.calibration) if args.calibration is not None else None
 
     LOGGER.info(
         "config=%s checkpoint=%s split=%s device=%s input_size=%d stride=%d output=%s",
@@ -188,7 +262,7 @@ def main() -> None:
         max_images=args.max_images,
     )
     summary = compute_summary(records)
-    write_predictions_csv(records, output_path)
+    write_sliding_predictions_csv(records, output_path, calibration=calibration)
     LOGGER.info(
         "sliding split=%s samples=%d mae=%.4f rmse=%.4f predictions=%s",
         args.split,
@@ -202,6 +276,21 @@ def main() -> None:
         f"mae={summary['mae']:.4f} rmse={summary['rmse']:.4f} "
         f"predictions={output_path}"
     )
+    if calibration is not None:
+        calibrated = compute_calibrated_summary(records, calibration)
+        LOGGER.info(
+            "calibrated sliding split=%s samples=%d mae=%.4f rmse=%.4f calibration=%s",
+            args.split,
+            int(calibrated["samples"]),
+            calibrated["mae"],
+            calibrated["rmse"],
+            args.calibration,
+        )
+        print(
+            f"calibrated sliding split={args.split} samples={int(calibrated['samples'])} "
+            f"mae={calibrated['mae']:.4f} rmse={calibrated['rmse']:.4f} "
+            f"calibration={args.calibration}"
+        )
 
 
 if __name__ == "__main__":

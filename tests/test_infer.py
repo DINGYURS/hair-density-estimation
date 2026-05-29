@@ -18,6 +18,7 @@ from infer import (
     save_inference_visualizations,
     stitch_window_densities,
 )
+from calibrate_sliding import SlidingCalibration
 
 
 class InferTest(unittest.TestCase):
@@ -100,6 +101,19 @@ class InferTest(unittest.TestCase):
         )
 
         self.assertEqual(lines, ["230219_A177_4", "gt=2.00  pred=2.47  err=0.47"])
+
+    def test_format_inference_label_lines_can_show_calibrated_count(self) -> None:
+        lines = format_inference_label_lines(
+            image_id="230219_A177_4",
+            pred_count=14.44,
+            gt_count=12.0,
+            calibration=SlidingCalibration(slope=0.748972, intercept=1.647411, source="val.csv"),
+        )
+
+        self.assertEqual(
+            lines,
+            ["230219_A177_4", "gt=12.00  raw=14.44  cal=12.46  err=0.46"],
+        )
 
     def test_generate_sliding_windows_covers_full_fdu_image(self) -> None:
         windows = generate_sliding_windows(height=1024, width=1280, patch_size=512, stride=512)
