@@ -6,7 +6,13 @@ import cv2
 import numpy as np
 import torch
 
-from eval_sliding import evaluate_sliding_image, read_split_image_ids, resolve_sliding_output_path
+from eval_sliding import (
+    evaluate_sliding_image,
+    list_all_image_ids,
+    read_split_image_ids,
+    resolve_eval_image_ids,
+    resolve_sliding_output_path,
+)
 from eval_sliding import write_sliding_predictions_csv
 from eval import PredictionRecord
 from calibrate_sliding import SlidingCalibration
@@ -25,6 +31,31 @@ class EvalSlidingTest(unittest.TestCase):
             split_path.write_text("a\n\n b \n", encoding="utf-8")
 
             self.assertEqual(read_split_image_ids(split_path), ["a", "b"])
+
+    def test_list_all_image_ids_reads_sorted_image_stems(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_dir = Path(temp_dir) / "Images"
+            image_dir.mkdir()
+            (image_dir / "b.jpg").write_bytes(b"")
+            (image_dir / "a.jpg").write_bytes(b"")
+            (image_dir / "ignore.txt").write_text("x", encoding="utf-8")
+
+            self.assertEqual(list_all_image_ids(Path(temp_dir)), ["a", "b"])
+
+    def test_resolve_eval_image_ids_can_use_all_images(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_root = Path(temp_dir)
+            image_dir = data_root / "Images"
+            image_dir.mkdir()
+            (image_dir / "img_002.jpg").write_bytes(b"")
+            (image_dir / "img_001.jpg").write_bytes(b"")
+
+            image_ids = resolve_eval_image_ids(
+                data_cfg={"root": str(data_root)},
+                split="all",
+            )
+
+            self.assertEqual(image_ids, ["img_001", "img_002"])
 
     def test_resolve_sliding_output_path_uses_split_name(self) -> None:
         output_path = resolve_sliding_output_path(Path("outputs/predictions"), split="test")

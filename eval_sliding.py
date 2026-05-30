@@ -36,7 +36,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--config", type=Path, default=Path("configs/csrnet_fdu.yaml"))
     parser.add_argument("--checkpoint", type=Path, required=True)
-    parser.add_argument("--split", choices=("val", "test"), default="test")
+    parser.add_argument("--split", choices=("train", "val", "test", "all"), default="test")
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--input-size", type=int, default=None)
     parser.add_argument(
@@ -55,6 +55,23 @@ def read_split_image_ids(split_path: str | Path) -> list[str]:
     path = Path(split_path)
     image_ids = [line.strip() for line in path.read_text(encoding="utf-8").splitlines()]
     return [image_id for image_id in image_ids if image_id]
+
+
+def list_all_image_ids(data_root: str | Path) -> list[str]:
+    image_dir = Path(data_root) / "Images"
+    image_ids = sorted(path.stem for path in image_dir.glob("*.jpg") if path.is_file())
+    if not image_ids:
+        raise RuntimeError(f"No .jpg images found in: {image_dir}")
+    return image_ids
+
+
+def resolve_eval_image_ids(data_cfg: dict[str, Any], split: str) -> list[str]:
+    data_root = Path(data_cfg["root"])
+    if split == "all":
+        return list_all_image_ids(data_root)
+
+    split_path = data_root / Path(data_cfg[f"{split}_split"])
+    return read_split_image_ids(split_path)
 
 
 def resolve_sliding_output_path(output_dir: Path, split: str) -> Path:
@@ -194,8 +211,7 @@ def evaluate_sliding_split(
 ) -> list[PredictionRecord]:
     data_cfg = config["data"]
     data_root = Path(data_cfg["root"])
-    split_path = data_root / Path(data_cfg[f"{split}_split"])
-    image_ids = read_split_image_ids(split_path)
+    image_ids = resolve_eval_image_ids(data_cfg, split)
     if max_images is not None:
         image_ids = image_ids[: int(max_images)]
     if not image_ids:
