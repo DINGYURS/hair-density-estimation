@@ -13,6 +13,22 @@
 
 `docs/project/` 中的文档是项目规划和设计来源。不要把其中的大段内容复制到代码注释或 README 中，除非用户明确要求整理面向读者的文档。
 
+## 重要文档速查
+
+优先按问题类型读取以下文件，避免每次全量扫描：
+
+- `docs/project/PRD.md`：产品范围、非目标、验收标准、当前研究原型边界。
+- `docs/project/TECH_DESIGN.md`：数据流、模块职责、CSRNet、密度图、训练/评估接口和损失函数设计。
+- `docs/project/PROJECT_PLAN.md`：阶段拆解、长期计划、已知环境事实、数据集统计和实施顺序。
+- `docs/ablation_report.md`：阶段八第一轮消融实验结果，包含 baseline、sigma、count loss、预训练、过滤 `abnormal`、整图缩放对比。
+- `docs/fdu_inference_analysis_report.md`：当前最佳模型 `docx5_3_e2_lambda03` 的 FDU 全量 1652 张整图滑窗推理分析、误差分布图和汇报结论。
+- `docs/data_report.md`：FDU 数据解析与统计报告，包含类别分布、bbox 修正和过滤统计。
+- `docs/experiment_log.md`：早期训练/实验流水记录，适合追溯 baseline 训练过程。
+- `docs/丝馥生_发量检测AI模型设计需求说明书_v1.0.docx`：导师/原始需求来源；读取时必须和当前实际 FDU XML 类别、数据可得性对照，不要直接照搬为当前实现事实。
+- `docs/assets/fdu_inference_analysis_docx5_3_e2_lambda03/`：汇报用推理误差可视化图。
+
+当前进度判断优先参考 `docs/fdu_inference_analysis_report.md` 和 `outputs/ablations/logs/` 中同步的远程日志；如果二者冲突，以最新远程日志和代码实际配置为准。
+
 ## 当前项目边界
 
 本项目当前是基于 `FDU_HairFollicleDataset` 的研究原型，不是生产级发量密度检测系统。
@@ -47,6 +63,8 @@
 - 已知 bbox 坐标顺序异常：3119 个
 - 已知 min/max 归一化后仍无效 bbox：93 个
 - train、val、test 无交叉，合计覆盖全部 1652 张图
+
+导师提供或自采的真实头皮照片不要放进 `FDU_HairFollicleDataset/` 根目录、`Images/`、`Annotations/` 或 `ImageSets/`。这些图片没有 FDU XML 标注，也不属于 FDU 官方 train/val/test 划分；应放入 `external_data/real_scalp_photos/<date_or_source>/`，仅用于域外推理观察、可视化展示或后续人工标注准备。`external_data/` 不提交 Git。
 
 ## 环境事实
 

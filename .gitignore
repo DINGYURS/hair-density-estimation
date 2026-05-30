@@ -27,6 +27,7 @@ Desktop.ini
 
 # Local dataset copies should be synced separately, not committed
 /FDU_HairFollicleDataset/
+/external_data/
 /data/
 /datasets/
 *.zip
